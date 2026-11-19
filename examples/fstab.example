@@ -1,0 +1,16 @@
+# /etc/fstab entry for the removable data disk. Find the UUID with: lsblk -o NAME,FSTYPE,UUID,SERIAL
+#
+#   nofail                        the host boots without the disk; only the mount fails
+#   x-systemd.device-timeout=10s  and it does not wait long for it
+#   x-systemd.device-bound        the mount unit stops by itself when the device disappears
+#                                 (units with BindsTo= on the mount react to that)
+#   errors=remount-ro             ext4 errors make it read-only instead of continuing to write
+#   no x-systemd.automount        mount state stays explicit and easy to check
+#
+# Before the first mount, make the EMPTY mountpoint immutable, so nothing can be written into it
+# while the disk is absent (it does not affect the mounted disk):
+#   sudo mkdir -p /mnt/project-data && sudo chattr +i /mnt/project-data
+# Then: sudo systemctl daemon-reload && sudo systemctl start 'mnt-project\x2ddata.mount'
+# (avoid `mount -a`: it touches every fstab entry)
+
+UUID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx /mnt/project-data ext4 defaults,nofail,errors=remount-ro,x-systemd.device-timeout=10s,x-systemd.device-bound 0 2

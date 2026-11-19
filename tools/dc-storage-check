@@ -1,0 +1,69 @@
+#!/bin/bash
+# dc-storage-check [compose options...] [service...]
+#
+# Run it first in any helper that runs `docker compose up/restart`, e.g.:
+#   dc-storage-check -f compose.yml "$@" && docker compose -f compose.yml up --force-recreate -d "$@"
+#
+# Refuses (exit 1)
+# when a bind source of the resolved Compose project lies under an /etc/fstab mountpoint (other
+# than /) that is not mounted, e.g. a USB data disk that is unplugged. Then nothing is touched:
+# `up --force-recreate` is not all-or-nothing and would otherwise tear down part of the stack
+# before failing on the missing folder.
+#
+# A no-op on machines without such mounts (every source is on /), so the same scripts work on
+# every machine. Reads /etc/fstab and /proc/self/mountinfo only: an unmounted disk or a sleeping
+# NFS automount is never touched (an armed automount counts as mounted). If Compose cannot
+# resolve its configuration, the check steps aside and lets `docker compose` report the error.
+# Bypass once: DC_STORAGE_CHECK=0 <your helper>
+set -uo pipefail
+
+[ "${DC_STORAGE_CHECK:-1}" = 0 ] && exit 0
+FSTAB="${DC_FSTAB:-/etc/fstab}"
+MOUNTINFO="${DC_MOUNTINFO:-/proc/self/mountinfo}"
+
+# fstab mountpoints other than / (no swap/none), longest first.
+mapfile -t mounts < <(awk '$1 !~ /^#/ && $2 ~ /^\// && $2 != "/" { m = $2; sub(/\/+$/, "", m); print length(m) "\t" m }' \
+    "$FSTAB" 2>/dev/null | sort -rn | cut -f2- | uniq)
+(( ${#mounts[@]} )) || exit 0
+
+# Split "[compose options...] [service...]": options are -f/-p/--profile with a value, or --flags.
+opts=() services=()
+while (( $# )); do
+    case "$1" in
+        -f|--file|-p|--project-name|--profile|--env-file|--project-directory) opts+=("$1" "${2:-}"); shift 2 ;;
+        -*) opts+=("$1"); shift ;;
+        *) services+=("$1"); shift ;;
+    esac
+done
+
+sources="$(docker compose "${opts[@]}" config --format json "${services[@]}" 2>/dev/null |
+    python3 -I -c '
+import json, sys
+for svc in (json.load(sys.stdin).get("services") or {}).values():
+    for v in svc.get("volumes") or []:
+        if v.get("type") == "bind" and v.get("source"):
+            print(v["source"])' 2>/dev/null)" || exit 0
+
+mounted() { awk -v m="$1" '$5 == m { f = 1 } END { exit !f }' "$MOUNTINFO" 2>/dev/null; }
+
+fail=0
+declare -A reported=()
+while IFS= read -r src; do
+    [ -n "$src" ] || continue
+    real="$(readlink -m -- "$src" 2>/dev/null || printf '%s' "$src")"
+    for m in "${mounts[@]}"; do
+        [[ "$real" == "$m" || "$real" == "$m"/* ]] || continue
+        if ! mounted "$m" && [ -z "${reported[$m]:-}" ]; then
+            reported[$m]=1
+            echo "❌ $m is not mounted, but this stack binds $src from it." >&2
+            fail=1
+        fi
+        break   # longest matching mountpoint decides
+    done
+done <<< "$sources"
+
+if (( fail )); then
+    echo "   Nothing was started or recreated. Check the disk's filesystem (e2fsck), mount it, then rerun." >&2
+    exit 1
+fi
+exit 0

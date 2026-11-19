@@ -1,0 +1,21 @@
+# Catch-all guard for a removable data disk (installed by host/install.sh).
+# Active whenever @MOUNTPOINT@ is mounted. When the mount stops (disk unplugged, device lost,
+# manual unmount, shutdown), systemd stops this unit first, and its stop step stops every
+# running container that bind-mounts anything under @MOUNTPOINT@.
+
+[Unit]
+Description=Stop containers using @MOUNTPOINT@ when it goes offline
+BindsTo=@MOUNT_UNIT@
+After=@MOUNT_UNIT@ docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PROJECT_DATA_MOUNT=@MOUNTPOINT@
+ExecStart=/bin/true
+# "-": a failing stop step must not block the unmount; details are in the journal.
+ExecStop=-/usr/local/sbin/project-data-guard-stop
+TimeoutStopSec=150
+
+[Install]
+WantedBy=@MOUNT_UNIT@

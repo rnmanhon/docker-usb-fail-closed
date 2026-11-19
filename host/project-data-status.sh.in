@@ -1,0 +1,36 @@
+# Warn in every new interactive shell when the data disk at @MOUNTPOINT@ is not mounted read/write.
+# Installed by host/install.sh as /etc/profile.d/project-data-status.sh (login shells) and sourced
+# from /etc/bash.bashrc (non-login shells, e.g. GNOME Terminal, which never read /etc/profile.d).
+#
+# Sourced, so POSIX sh only and no exit. Reads only /etc/fstab and /proc/self/mountinfo: no disk
+# I/O, so it cannot hang a new shell on a dead disk. Prints once per shell.
+
+_project_data_status() {
+    _pd_mnt=@MOUNTPOINT@
+    case $- in *i*) ;; *) return 0 ;; esac
+    [ -z "${_project_data_status_done:-}" ] || return 0
+    _project_data_status_done=1
+    # Only on hosts where fstab manages the mountpoint.
+    awk -v m="$_pd_mnt" '$1 !~ /^#/ && $2 == m { f = 1 } END { exit !f }' /etc/fstab 2>/dev/null || return 0
+    # mountinfo: field 6 = per-mount options; the third field after "-" = superblock options
+    # (where ext4 errors=remount-ro shows up).
+    _pd_opts=$(awk -v m="$_pd_mnt" '$5 == m {
+        for (i = 7; i <= NF; i++) if ($i == "-") break
+        o = $6 "," $(i + 3) } END { print o }' /proc/self/mountinfo 2>/dev/null)
+    if [ -z "$_pd_opts" ]; then
+        _pd_state="NOT MOUNTED"
+    else
+        case ",$_pd_opts," in
+            *,ro,*) _pd_state="mounted READ-ONLY (filesystem error?)" ;;
+            *) return 0 ;;
+        esac
+    fi
+    if [ -t 1 ]; then _pd_red=$(printf '\033[1;31m'); _pd_off=$(printf '\033[0m'); else _pd_red=; _pd_off=; fi
+    printf '%s\n' \
+        "${_pd_red}WARNING: data disk $_pd_mnt is $_pd_state.${_pd_off}" \
+        "  Containers using it are stopped. Check the filesystem (e2fsck), mount it," \
+        "  then recreate the affected stacks. Nothing restarts on its own."
+}
+_project_data_status
+unset -f _project_data_status
+unset _pd_mnt _pd_opts _pd_state _pd_red _pd_off

@@ -1,0 +1,21 @@
+# Only the parts that matter for data on a removable disk.
+services:
+  app:
+    image: example/app:1.0
+    # The systemd unit is the only thing that starts this stack. With "unless-stopped" or
+    # "always", the Docker daemon would start the old containers at boot, without the preflight.
+    # Tip: make it per machine, e.g. restart: ${APP_RESTART:-unless-stopped}, and set
+    # APP_RESTART=no only on the machine whose data lives on the removable disk.
+    restart: "no"
+    volumes:
+      # Long syntax with create_host_path: false. With the short syntax, a missing source (disk
+      # not mounted) is created by Docker as an empty folder on the system disk.
+      - type: bind
+        # Per-machine path with the old location as default, so the same file works on machines
+        # without the removable disk.
+        source: ${APP_CACHE_DIR:-${HOME}/app-data/cache}
+        target: /data/cache
+        bind:
+          create_host_path: false
+      # Data that must survive losing the disk (database, uploads, backups) stays on the system disk.
+      - ${HOME}/app-data/db:/var/lib/app/db

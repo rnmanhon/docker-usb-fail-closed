@@ -1,0 +1,28 @@
+# Drop-in for the systemd unit that starts your Compose stack, e.g.
+#   /etc/systemd/system/my-stack.service.d/10-required-mounts.conf
+# then: sudo systemctl daemon-reload
+#
+# The unit itself is assumed to look roughly like this (oneshot Compose runner):
+#   [Service]
+#   Type=oneshot
+#   RemainAfterExit=yes
+#   WorkingDirectory=/srv/my-stack
+#   ExecStart=/usr/bin/docker compose up -d
+#   ExecStop=/usr/bin/docker compose down
+#
+# Mount unit name for your mountpoint: systemd-escape --path --suffix=mount /mnt/project-data
+
+[Unit]
+# Refuse to start without the disk (the mount must be active).
+RequiresMountsFor=/mnt/project-data
+# Stop the whole stack (ExecStop: compose down) when the mount stops, e.g. the disk is unplugged
+# and fstab's x-systemd.device-bound stops the mount unit.
+BindsTo=mnt-project\x2ddata.mount
+After=mnt-project\x2ddata.mount
+
+[Service]
+# Right disk, read/write, every bind source present and on the disk. Same Compose options and
+# environment as ExecStart (add -f files / --profile after "--" if your ExecStart uses them).
+ExecStartPre=/usr/local/bin/storage-preflight.sh -m /mnt/project-data --
+# A failed preflight must not loop through Restart=on-failure.
+RestartPreventExitStatus=78
