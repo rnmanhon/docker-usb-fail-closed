@@ -45,6 +45,20 @@ find_users() {
     done
 }
 
+# System shutdown with Docker ordered after the mount (host/install.sh installs that drop-in): Docker stops
+# its containers itself before the unmount, keeping their restart policy. A `docker stop` here would
+# mark them as stopped by hand, so restart: unless-stopped would leave them down after the reboot.
+# Without that ordering, stop them here as usual so the unmount does not hit a busy disk.
+if [ "$dry_run" -eq 0 ] && [ "$(systemctl is-system-running 2>/dev/null)" = "stopping" ]; then
+    mount_unit=$(systemd-escape --path --suffix=mount "$MNT" 2>/dev/null)
+    if [ -n "$mount_unit" ] && systemctl show -p After --value docker.service 2>/dev/null | tr ' ' '\n' |
+            sed -e 's/^"//' -e 's/"$//' -e 's/\\\\/\\/g' | grep -qxF "$mount_unit"; then
+        # (systemctl show prints escaped unit names quoted, with the backslash doubled)
+        log "system shutdown: Docker stops the containers on $MNT itself before the unmount; not stopping them here"
+        exit 0
+    fi
+fi
+
 mapfile -t users < <(find_users)
 
 if [ "$dry_run" -eq 1 ]; then

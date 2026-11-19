@@ -9,6 +9,7 @@
 #   /etc/systemd/system/project-data-guard.service   bound to the mount unit, enabled WantedBy it
 #   /etc/profile.d/project-data-status.sh            new-shell warning (+ one line in /etc/bash.bashrc)
 #   /etc/udev/rules.d/90-project-data-usb-power.rules  only with --usb: USB autosuspend off for that disk
+#   /etc/systemd/system/docker.service.d/10-after-data-disk.conf  Docker ordered after the mount (ordering only)
 #
 # Prerequisite: an /etc/fstab entry for the mountpoint (see examples/fstab.example).
 # Find --usb values with: udevadm info -a -n /dev/sdX | grep -E 'ATTRS\{(idVendor|idProduct|serial)\}' | head -3
@@ -32,6 +33,7 @@ MOUNT_UNIT="$(systemd-escape --path --suffix=mount "$MNT")"
 STOP_BIN=/usr/local/sbin/project-data-guard-stop
 STATUS_SH=/etc/profile.d/project-data-status.sh
 UDEV_RULE=/etc/udev/rules.d/90-project-data-usb-power.rules
+DOCKER_DROPIN=/etc/systemd/system/docker.service.d/10-after-data-disk.conf
 BASHRC=/etc/bash.bashrc
 HOOK_MARK='# project-data-status (docker-usb-fail-closed)'
 HOOK_LINE="[ -r $STATUS_SH ] && . $STATUS_SH"
@@ -45,6 +47,9 @@ install_all() {
     sed -e "s#@MOUNTPOINT@#$MNT#g" -e "s#@MOUNT_UNIT@#${MOUNT_UNIT//\\/\\\\}#g" \
         "$HERE/project-data-guard.service.in" > "/etc/systemd/system/$UNIT"
     chmod 0644 "/etc/systemd/system/$UNIT"
+    mkdir -p "$(dirname "$DOCKER_DROPIN")"
+    sed "s#@MOUNT_UNIT@#${MOUNT_UNIT//\\/\\\\}#g" "$HERE/10-docker-after-mount.conf.in" > "$DOCKER_DROPIN"
+    chmod 0644 "$DOCKER_DROPIN"
     sed "s#@MOUNTPOINT@#$MNT#g" "$HERE/project-data-status.sh.in" > "$STATUS_SH"
     chmod 0644 "$STATUS_SH"
     say "files installed for $MNT ($MOUNT_UNIT)"
@@ -82,7 +87,8 @@ uninstall_all() {
     rm -f "$STOP_BIN"
     systemctl stop "$UNIT" 2>/dev/null || true
     systemctl disable "$UNIT" 2>/dev/null || true
-    rm -f "/etc/systemd/system/$UNIT" "$STATUS_SH" "$UDEV_RULE"
+    rm -f "/etc/systemd/system/$UNIT" "$STATUS_SH" "$UDEV_RULE" "$DOCKER_DROPIN"
+    rmdir "$(dirname "$DOCKER_DROPIN")" 2>/dev/null || true
     if grep -qF "$HOOK_MARK" "$BASHRC"; then
         sed -i "\\|^$HOOK_MARK\$|d; \\|^\\[ -r $STATUS_SH \\] && \\. $STATUS_SH\$|d" "$BASHRC"
         say "hook removed from $BASHRC"

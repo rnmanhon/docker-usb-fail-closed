@@ -1,0 +1,9 @@
+# Drop-in for docker.service, installed by host/install.sh as
+# /etc/systemd/system/docker.service.d/10-after-data-disk.conf. Ordering only: Docker never requires the disk.
+#  - Boot: Docker starts after the data-disk mount has been attempted (at most the device timeout when the
+#    disk is absent), so containers with restart: unless-stopped find their bind sources.
+#  - Shutdown: the order reverses, so Docker stops its containers itself (keeping their restart policy)
+#    before the disk is unmounted. The guard then skips its own docker stop, which would mark them as
+#    stopped by hand and leave unless-stopped containers down after the reboot.
+[Unit]
+After=@MOUNT_UNIT@

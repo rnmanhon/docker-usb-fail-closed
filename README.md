@@ -26,6 +26,7 @@ Removable USB Disk*.
 | 4 | Stack unit drop-in: `RequiresMountsFor`, `BindsTo`/`After` the mount unit, preflight, `RestartPreventExitStatus=78` | [stack/10-required-mounts.conf.example](stack/10-required-mounts.conf.example) |
 | 5 | Preflight: right disk (fstab UUID), read/write, every bind source present and really on the disk | [stack/storage-preflight.sh](stack/storage-preflight.sh) |
 | 6 | Catch-all guard: stops **any** container with a bind source on the disk when the mount stops (dev stacks, `docker run`) | [host/](host/) |
+| 6b | Docker ordered after the mount (drop-in, ordering only): `unless-stopped` containers find their data at boot, and at shutdown Docker stops them itself before the unmount, so they come back after a reboot | `host/10-docker-after-mount.conf.in` |
 | 7 | Tell a human: `wall` on loss, red warning in every new shell (also non-login shells) | [host/](host/) |
 | 8 | Optional: USB autosuspend off for this one disk | `host/install.sh --usb` |
 | 9 | Check before `docker compose up --force-recreate` in your helper scripts (it is not all-or-nothing) | [tools/dc-storage-check](tools/dc-storage-check) |
@@ -104,9 +105,14 @@ host/install.sh                       install/uninstall the host guard (--mount,
 host/project-data-guard.service.in    guard unit template
 host/project-data-guard-stop.sh       stops containers with a bind source on the disk; wall
 host/project-data-status.sh.in        new-shell warning template
+host/10-docker-after-mount.conf.in    docker.service ordering drop-in template
 stack/storage-preflight.sh            preflight for a stack (exit 78 on failure)
 stack/10-required-mounts.conf.example drop-in for the stack's systemd unit
 stack/compose.example.yml             bind and restart settings
 tools/dc-storage-check                check for helper scripts before compose up
 examples/fstab.example                fstab line, chattr +i
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE). The scripts run as root and change systemd, udev and shell startup files: read them, and try them on a test machine or an empty disk first.
